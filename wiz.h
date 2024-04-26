@@ -2,8 +2,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-#define WIZ_DATA_PATH "wiz.csv"
-
+#define WIZ_PATH "/.local/state/wiz/wiz.csv"
 #define PORT 38899
 #define MAX_DEVS 256
 #define MAX_REQ 128

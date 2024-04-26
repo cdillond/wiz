@@ -52,16 +52,21 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+    char *homepath = getenv("HOME");
+    char wiz_data_path[PATH_MAX + sizeof(WIZ_PATH)] = "";
+    strcpy(wiz_data_path, homepath);
+    strcat(wiz_data_path, WIZ_PATH);
+
     // load the device configs into memory
     struct stat fstat;
-    if ((stat(WIZ_DATA_PATH, &fstat)) < 0)
+    if ((stat(wiz_data_path, &fstat)) < 0)
     {
         perror(NULL);
         return EXIT_FAILURE;
     }
     char *buf = malloc(fstat.st_size + 1);
 
-    FILE *fp = fopen(WIZ_DATA_PATH, "r");
+    FILE *fp = fopen(wiz_data_path, "r");
     if (fp == NULL)
     {
         fprintf(stderr, "unable to open device configuration file\n");
@@ -545,6 +550,9 @@ int broadcast_udp(int timeout, int max_devs)
         return -1;
     }
 
+    if (timeout <= 0)
+        timeout = 1;
+
     struct timeval tv;
     tv.tv_sec = timeout;
     tv.tv_usec = 0;
@@ -572,6 +580,8 @@ int broadcast_udp(int timeout, int max_devs)
     }
 
     char buf[1024 + 1] = "";
+    if (max_devs <= 0)
+        max_devs = MAX_DEVS;
     for (int i = 0; i < max_devs; i++)
     {
         int fromlen = sizeof(sin);
