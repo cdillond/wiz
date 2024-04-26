@@ -113,9 +113,7 @@ int main(int argc, char *argv[])
     else if (args.turn_off)
     {
         for (int i = 0; i < n; i++)
-        {
             devs[i].op = OP_OFF;
-        }
     }
     else if (args.kelvin > 1999)
     {
@@ -128,9 +126,7 @@ int main(int argc, char *argv[])
     else if (args.turn_on)
     {
         for (int i = 0; i < n; i++)
-        {
             devs[i].op = OP_ON;
-        }
     }
     else if (args.scene > BAD_SCENE)
     {
@@ -143,9 +139,7 @@ int main(int argc, char *argv[])
     else
     {
         for (int i = 0; i < n; i++)
-        {
             devs[i].op = OP_ON;
-        }
     }
 
     if (args.list)
@@ -155,13 +149,9 @@ int main(int argc, char *argv[])
         {
             printf("name: %s\taddress: %s", devs[i].name, devs[i].ip);
             if (devs[i].room == NULL)
-            {
                 printf("\n");
-            }
             else
-            {
                 printf("\troom: %s\n", devs[i].room);
-            }
         }
     }
 
@@ -499,11 +489,10 @@ bool is_in(char *s, char *list)
     int i, j;
     i = 0, j = 0;
 
-    // range over s
     char c;
     while (list[j])
     {
-        while (s[i] && list[j])
+        while (s[i] && (s[i] == list[j]))
         {
             i++;
             j++;
@@ -599,8 +588,6 @@ int broadcast_udp(int timeout, int max_devs)
         }
         char x[20] = "";
         printf("%s\n", inet_ntop(AF_INET, &sin.sin_addr.s_addr, x, INET_ADDRSTRLEN));
-        // buf[n] = '\0';
-        //  printf("%s\n", buf);
     }
     close(sockfd);
     return res;
