@@ -4,6 +4,7 @@
 #include <netinet/in.h>
 #include <netinet/udp.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,8 +54,8 @@ int main(int argc, char *argv[])
     }
 
     char *homepath = getenv("HOME");
-    char wiz_data_path[PATH_MAX + sizeof(WIZ_PATH)] = "";
-    strcpy(wiz_data_path, homepath);
+    char wiz_data_path[PATH_MAX] = "";
+    strlcpy(wiz_data_path, homepath, PATH_MAX - sizeof(WIZ_PATH));
     strcat(wiz_data_path, WIZ_PATH);
 
     // load the device configs into memory
@@ -150,13 +151,14 @@ int main(int argc, char *argv[])
     if (args.list)
     {
         printf("Devices\n");
+        printf("NAME\tIP ADDRESS\tROOM\n");
         for (int i = 0; i < n; i++)
         {
-            printf("name: %s\taddress: %s", devs[i].name, devs[i].ip);
+            printf("%s\t%s", devs[i].name, devs[i].ip);
             if (devs[i].room == NULL)
                 printf("\n");
             else
-                printf("\troom: %s\n", devs[i].room);
+                printf("\t%s\n", devs[i].room);
         }
     }
 
@@ -195,7 +197,7 @@ int send_cmds(device devs[], int n)
             res = -1;
             break;
         }
-        int op_len = op_str(buf, devs[i]);
+        int op_len = req_msg(buf, devs[i]);
         if (op_len < 0)
         {
             fprintf(stderr, "error parsing command\n");
@@ -300,7 +302,7 @@ int init_color(color *col, char *s)
     return (n != 3);
 };
 
-int op_str(char buf[], device dev)
+int req_msg(char buf[], device dev)
 {
     int n;
     switch (dev.op)
@@ -312,21 +314,18 @@ int op_str(char buf[], device dev)
         strcpy(buf, ON);
         return sizeof(ON);
     case OP_COLOR:
-        n = sprintf(buf, COLOR, 1, dev.col.r, dev.col.g, dev.col.b);
+        n = sprintf(buf, COLOR, dev.col.r, dev.col.g, dev.col.b);
         return (n < 1) ? -1 : n + 1;
     case OP_KELVIN:
-        n = sprintf(buf, KELVIN, 1, dev.kelvin);
+        n = sprintf(buf, KELVIN, dev.kelvin);
         return (n < 1) ? -1 : n + 1;
     case OP_SCENE:
-        n = sprintf(buf, SCENE, 1, dev.scene);
+        n = sprintf(buf, SCENE, dev.scene);
         return (n < 1) ? -1 : n + 1;
     }
     return -1;
 }
 
-/*
-parse_csv reads through data
-*/
 int parse_csv(char *data, int n, device devs[], char *search_names, char *search_rooms)
 {
     int d = 0;
@@ -530,8 +529,7 @@ bool is_in(char *s, char *list)
     return false;
 }
 
-// broadcasts a message on the local network and listens until the timeout is exceeded or max_devs responses have been received.
-int broadcast_udp(int timeout, int max_devs)
+int broadcast_udp(int timeout, int max_resps)
 {
     int res = 0;
     // CREATE NEW UDP SOCKET
@@ -580,9 +578,9 @@ int broadcast_udp(int timeout, int max_devs)
     }
 
     char buf[1024 + 1] = "";
-    if (max_devs <= 0)
-        max_devs = MAX_DEVS;
-    for (int i = 0; i < max_devs; i++)
+    if (max_resps <= 0)
+        max_resps = MAX_DEVS;
+    for (int i = 0; i < max_resps; i++)
     {
         int fromlen = sizeof(sin);
         ssize_t n = recvfrom(sockfd, buf, 1024, 0, (struct sockaddr *)(&sin), &fromlen);

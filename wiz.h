@@ -1,6 +1,7 @@
 #include <argp.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #define WIZ_PATH "/.local/state/wiz/wiz.csv"
 #define PORT 38899
@@ -9,9 +10,9 @@
 
 #define OFF "{\"id\":1,\"method\":\"setState\",\"params\":{\"state\":false}}"
 #define ON "{\"id\":1,\"method\":\"setState\",\"params\":{\"state\":true}}"
-#define COLOR "{\"id\":%d,\"method\":\"setPilot\",\"params\":{\"r\":%d,\"g\":%d,\"b\":%d}}"
-#define KELVIN "{\"id\":%d,\"method\":\"setPilot\",\"params\":{\"temp\":%d}}"
-#define SCENE "{\"id\":%d,\"method\":\"setPilot\",\"params\":{\"sceneId\":%d}}"
+#define COLOR "{\"id\":1,\"method\":\"setPilot\",\"params\":{\"r\":%u,\"g\":%u,\"b\":%u}}"
+#define KELVIN "{\"id\":1,\"method\":\"setPilot\",\"params\":{\"temp\":%d}}"
+#define SCENE "{\"id\":1,\"method\":\"setPilot\",\"params\":{\"sceneId\":%d}}"
 #define INFO "{\"id\":-2147483648,\"method\":\"getDevInfo\"}"
 
 typedef enum
@@ -62,11 +63,14 @@ typedef enum scene
     MAX_SCENE,
 } scene;
 
+/*
+  A color contains the r, g, and b values for the light color, each of which must be in [0, 255).
+ */
 typedef struct color
 {
-    int r;
-    int g;
-    int b;
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
 } color;
 
 typedef struct device
@@ -101,17 +105,20 @@ struct arg_vals
     scene scene;
 };
 
+// parse_csv interprets data as the contents of a csv file. It writes the information to devs, which should have a length of MAX_DEVS. If search and/or search_room are not NULL, parse_csv ignores all devices with names or room names that do not mach these strings. (Each string argument is interpreted either as a single name or as a comma-separated list of names.) parse_csv returns the number of devices loaded into devs, or -1 on failure.
 int parse_csv(char *data, int n, device devs[], char *search, char *search_room);
 
-int init_color(color *, char *);
+// init_color parses the string argument as either a named color or a comma-separated list of r, g, and b values of a color. It updates the color and returns 0 on success or -1 on failure.
+int init_color(color *col, char *s);
 
-// Reads the file named by path and stores parsed devices in buf. Returns the number of devices parsed, or -1 if there was an error.
-int read_devs(device buf[], char *path, char *look);
+// req_msg builds a request body that represents dev and writes it to buf.
+int req_msg(char buf[], device dev);
 
-int op_str(char buf[], device dev);
+// scene_str returns the scene id that matches s.
+scene str_scene(char *s);
 
-scene str_scene(char *);
+// is_in interprets list as either a single string or a comma-separated list of strings. It returns true if s is equal to any of those strings.
+bool is_in(char *s, char *list);
 
-bool is_in(char *, char *);
-
-int broadcast_udp(int, int);
+// broadcast_udp broadcasts a message via UDP on port 38899 to the local network. It then prints the IP address of incoming responses either until timeout (in seconds) has elapsed or max_resps responses have been received.
+int broadcast_udp(int timeout, int max_resps);
