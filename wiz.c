@@ -1,6 +1,7 @@
 #include <argp.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <linux/limits.h>
 #include <netinet/in.h>
 #include <netinet/udp.h>
 #include <stdbool.h>
@@ -22,6 +23,7 @@ const char doc[] = "wiz is a cli tool for controlling wiz lights.";
 static struct argp_option options[] = {
     {"color", 'c', "COLOR", 0, "Color name (r, g, b, red, green, or blue) or RGB (0-255,0-255,0-255) color value", 0},
     {"discover", 'd', "TIMEOUT,MAX_DEVS", 0, "Broadcast a discovery signal to the network and print responses to stdout until TIMEOUT (in seconds) elapses or MAX_DEVS responses have been received", 0},
+    {"broadcast", 'b', 0, 0, "Broadcasts the command to all devices on the current network, regardless of whether they appear in the config file.", 0},
     {"ips", 'i', "ADDRESS", 0, "Comma-separated list of device IP addresses", 0},
     {"kelvin", 'k', "KELVIN", 0, "Temperature in kelvins, must be in [2000, 9000)", 0},
     {"list", 'l', 0, 0, "Lists the devices to which the command is sent", 0},
@@ -53,21 +55,31 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    char *homepath = getenv("HOME");
-    char wiz_data_path[PATH_MAX] = "";
-    strlcpy(wiz_data_path, homepath, PATH_MAX - sizeof(WIZ_PATH));
-    strcat(wiz_data_path, WIZ_PATH);
+    // check if the program is operating in discovery mode, broadcast mode, or ip mode.
+    // these modes do not read the device config file.
 
+    if (args.discover) { return broadcast_udp_wait(INFO, sizeof(INFO), args.seconds, args.num_devs); }
+
+    if (args.broadcast) { return msg_all(args); }
+
+    if (args.ips != NULL) { return use_ips(args); }
+
+    
     // load the device configs into memory
     struct stat fstat;
-    if ((stat(wiz_data_path, &fstat)) < 0)
-    {
+    if ((stat(WIZ_PATH, &fstat)) < 0)
+    {  
+        fprintf(stderr, "unable to stat device configuration file\n");
         perror(NULL);
+        return EXIT_FAILURE;
+    }
+    if (fstat.st_size == 0) {
+        fprintf(stderr, "device configuration file is empty\n");
         return EXIT_FAILURE;
     }
     char *buf = malloc(fstat.st_size + 1);
 
-    FILE *fp = fopen(wiz_data_path, "r");
+    FILE *fp = fopen(WIZ_PATH, "r");
     if (fp == NULL)
     {
         fprintf(stderr, "unable to open device configuration file\n");
@@ -77,16 +89,16 @@ int main(int argc, char *argv[])
     if (fread(buf, fstat.st_size, 1, fp) == 0)
     {
         fprintf(stderr, "unable to read device configuration file\n");
-        perror(NULL);
         return EXIT_FAILURE;
     }
     if (fclose(fp) < 0)
     {
+        fprintf(stderr, "unable to close device configuration file\n");
         perror(NULL);
         return EXIT_FAILURE;
     }
 
-    // parse devices names/ips
+    // parse devices names/ips from the config file
     device devs[MAX_DEVS];
     int n = 0;
     n = parse_csv(buf, fstat.st_size + 1, devs, args.name, args.room);
@@ -96,57 +108,18 @@ int main(int argc, char *argv[])
         exit_status = EXIT_FAILURE;
         goto end;
     }
-    if (n == 0 && !args.discover)
-    {
-        fprintf(stderr, "no devices found\n");
+    if (n == 0 ) {
+        fprintf(stderr, "no devices read from the configuration file\n");
         exit_status = EXIT_FAILURE;
         goto end;
     }
 
-    if (args.discover)
-    {
-        return broadcast_udp(args.seconds, args.num_devs);
-    }
-
-    if (args.change_col)
-    {
-        for (int i = 0; i < n; i++)
-        {
-            devs[i].op = OP_COLOR;
-            devs[i].col = args.col;
-        }
-    }
-    else if (args.turn_off)
-    {
-        for (int i = 0; i < n; i++)
-            devs[i].op = OP_OFF;
-    }
-    else if (args.kelvin > 1999)
-    {
-        for (int i = 0; i < n; i++)
-        {
-            devs[i].op = OP_KELVIN;
-            devs[i].kelvin = args.kelvin;
-        }
-    }
-    else if (args.turn_on)
-    {
-        for (int i = 0; i < n; i++)
-            devs[i].op = OP_ON;
-    }
-    else if (args.scene > BAD_SCENE)
-    {
-        for (int i = 0; i < n; i++)
-        {
-            devs[i].op = OP_SCENE;
-            devs[i].scene = args.scene;
-        }
-    }
-    else
-    {
-        for (int i = 0; i < n; i++)
-            devs[i].op = OP_ON;
-    }
+    // update devs to reflect args
+    update_dev(devs, args);
+    char msg[MAX_REQ];
+    int mlen = req_msg(msg, devs[0]);
+    
+    
 
     if (args.list)
     {
@@ -162,7 +135,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (send_cmds(devs, n) < 0)
+    if (send_cmds(msg, mlen, devs, n) < 0)
     {
         fprintf(stderr, "error sending cmds\n");
         exit_status = EXIT_FAILURE;
@@ -174,7 +147,7 @@ end:
     return exit_status;
 }
 
-int send_cmds(device devs[], int n)
+int send_cmds(char *msg, int mlen, device devs[], int num_devs)
 {
     int res = 0;
     // CREATE NEW UDP SOCKET
@@ -188,8 +161,7 @@ int send_cmds(device devs[], int n)
     sin.sin_family = AF_INET;
     sin.sin_port = htons(PORT);
 
-    char buf[MAX_REQ];
-    for (int i = 0; i < n; i++)
+    for (int i = 0; i < num_devs; i++)
     {
         if (inet_aton(devs[i].ip, &(sin.sin_addr)) == 0)
         {
@@ -197,16 +169,8 @@ int send_cmds(device devs[], int n)
             res = -1;
             break;
         }
-        int op_len = req_msg(buf, devs[i]);
-        if (op_len < 0)
-        {
-            fprintf(stderr, "error parsing command\n");
-            res = -1;
-            break;
-        }
-
         socklen_t len = sizeof(sin);
-        if (sendto(sockfd, (void *)buf, op_len, 0, (struct sockaddr *)(&sin), len) < 0)
+        if (sendto(sockfd, (void *)msg, mlen, 0, (struct sockaddr *)(&sin), len) < 0)
         {
             fprintf(stderr, "error sending request\n");
             perror(NULL);
@@ -229,6 +193,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 
     switch (key)
     {
+    case 'b':
+        arg_info->broadcast = true;
+        break;
     case 'c':
         if (init_color(&arg_info->col, arg))
         {
@@ -242,8 +209,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         sscanf(arg, "%d,%d", &(arg_info->seconds), &(arg_info->num_devs));
         break;
     case 'i':
-        arg_info->use_ips = true;
-        arg_info->buf = arg;
+        arg_info->ips = arg;
         break;
     case 'k':
         arg_info->kelvin = clamp(2000, 8999, atoi(arg));
@@ -298,28 +264,95 @@ int init_color(color *col, char *s)
     }
 
     // then check if s can be parsed as r,g,b
-    int n = sscanf(s, "%d,%d,%d", &col->r, &col->g, &col->b);
+    int n = sscanf(s, "%hhu,%hhu,%hhu", &col->r, &col->g, &col->b);
     return (n != 3);
 };
+
+device init_dev( struct arg_vals args) {
+    device dev = {};
+    if (args.change_col)
+    {
+        
+        dev.op = CMD_COLOR;
+        dev.col = args.col;
+        
+    }
+    else if (args.turn_off)
+    {
+        dev.op = CMD_OFF;
+    }
+    else if (args.kelvin > 1999)
+    {
+        dev.op = CMD_KELVIN;
+        dev.kelvin = args.kelvin;
+    }
+    else if (args.turn_on)
+    {
+        dev.op = CMD_ON;
+    }
+    else if (args.scene > BAD_SCENE)
+    {
+        dev.op = CMD_SCENE;
+        dev.scene = args.scene;
+    }
+    else
+    {
+        dev.op = CMD_ON;
+    }
+    return dev;
+}
+
+void update_dev(device *dev, struct arg_vals args) {
+if (args.change_col)
+    {
+        
+        dev->op = CMD_COLOR;
+        dev->col = args.col;
+        
+    }
+    else if (args.turn_off)
+    {
+        dev->op = CMD_OFF;
+    }
+    else if (args.kelvin > 1999)
+    {
+        dev->op = CMD_KELVIN;
+        dev->kelvin = args.kelvin;
+    }
+    else if (args.turn_on)
+    {
+        dev->op = CMD_ON;
+    }
+    else if (args.scene > BAD_SCENE)
+    {
+        dev->op = CMD_SCENE;
+        dev->scene = args.scene;
+    }
+    else
+    {
+        dev->op = CMD_ON;
+    }
+}
+
 
 int req_msg(char buf[], device dev)
 {
     int n;
     switch (dev.op)
     {
-    case OP_OFF:
+    case CMD_OFF:
         strcpy(buf, OFF);
         return sizeof(OFF);
-    case OP_ON:
+    case CMD_ON:
         strcpy(buf, ON);
         return sizeof(ON);
-    case OP_COLOR:
+    case CMD_COLOR:
         n = sprintf(buf, COLOR, dev.col.r, dev.col.g, dev.col.b);
         return (n < 1) ? -1 : n + 1;
-    case OP_KELVIN:
+    case CMD_KELVIN:
         n = sprintf(buf, KELVIN, dev.kelvin);
         return (n < 1) ? -1 : n + 1;
-    case OP_SCENE:
+    case CMD_SCENE:
         n = sprintf(buf, SCENE, dev.scene);
         return (n < 1) ? -1 : n + 1;
     }
@@ -439,6 +472,26 @@ find_group:
     return d;
 }
 
+int parse_ips(char *src, device devs[]) {
+    int n = 0;
+    int i = 0;
+    int src_len = strlen(src);
+    device new = {};
+    for (; i < src_len && n < MAX_DEVS; n++) {
+        devs[n] = new;
+        devs[n].ip = &src[i];
+        while (i < src_len) {
+            if (src[i] == ',') {
+                src[i] = '\0';
+                i++;
+                break;
+            }
+            i++;
+        }
+    }
+    return n;
+}
+
 static char *scene_strs[] = {
     "ocean",
     "romance",
@@ -529,7 +582,7 @@ bool is_in(char *s, char *list)
     return false;
 }
 
-int broadcast_udp(int timeout, int max_resps)
+int broadcast_udp_wait(char *msg, int mlen, int timeout, int max_resps)
 {
     int res = 0;
     // CREATE NEW UDP SOCKET
@@ -557,8 +610,8 @@ int broadcast_udp(int timeout, int max_resps)
 
     if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
     {
-        fprintf(stderr, "here\n");
         perror(NULL);
+        fprintf(stderr, "error setting socket\n");
         close(sockfd);
         return -1;
     }
@@ -567,9 +620,8 @@ int broadcast_udp(int timeout, int max_resps)
     sin.sin_family = AF_INET;
     sin.sin_port = htons(PORT);
     sin.sin_addr.s_addr = INADDR_BROADCAST;
-
-    // (sendto(sockfd, (void *)buf, op_len, 0, (struct sockaddr *)(&sin), len) < 0)
-    if (sendto(sockfd, (void *)INFO, sizeof(INFO), 0, (struct sockaddr *)(&sin), sizeof(sin)) < 0)
+    
+    if (sendto(sockfd, (void *)msg, mlen, 0, (struct sockaddr *)(&sin), sizeof(sin)) < 0)
     {
         perror(NULL);
         fprintf(stderr, "send error\n");
@@ -600,3 +652,59 @@ int broadcast_udp(int timeout, int max_resps)
     close(sockfd);
     return res;
 }
+
+
+int msg_all(struct arg_vals a) {
+    device dev = init_dev(a);
+    char buf[MAX_REQ];
+    int n = req_msg(buf, dev);
+    return  broadcast_udp(buf, n);
+}
+
+
+int broadcast_udp(char *msg, int mlen)
+{
+    int res = 0;
+    // CREATE NEW UDP SOCKET
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0)
+    {
+        perror(NULL);
+        return -1;
+    }
+
+    int broadcastEnable = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable)) < 0)
+    {
+        perror(NULL);
+        close(sockfd);
+        return -1;
+    }
+
+    struct sockaddr_in sin;
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons(PORT);
+    sin.sin_addr.s_addr = INADDR_BROADCAST;
+    
+    if (sendto(sockfd, (void *)msg, mlen, 0, (struct sockaddr *)(&sin), sizeof(sin)) < 0)
+    {
+        perror(NULL);
+        fprintf(stderr, "send error\n");
+        return -1;
+    }
+    close(sockfd);
+    return res;
+}
+
+int use_ips(struct arg_vals args) {
+    device devs[MAX_DEVS];
+    int n = parse_ips(args.ips, devs);
+    if (n < 1) {
+        fprintf(stderr, "unable to parse ip addresses");
+        return EXIT_FAILURE;
+    }
+    update_dev(devs, args);
+    char msg[MAX_REQ];
+    int mlen = req_msg(msg, devs[0]);
+    return send_cmds(msg, mlen, devs, n);
+};
