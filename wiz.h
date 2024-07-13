@@ -83,8 +83,6 @@ typedef struct device
     scene scene;
 } device;
 
-
-
 struct arg_vals
 {
     bool broadcast;
@@ -100,6 +98,7 @@ struct arg_vals
     int kelvin;
     int seconds;
     int num_devs;
+    int repeat;
     scene scene;
 };
 
@@ -135,4 +134,4 @@ void update_dev(device *dev, struct arg_vals args);
 int broadcast_udp(char *msg, int mlen);
 // parse_ips parses a comma-separated list of ipv4 addresses and returns the number of updated devices.
 int parse_ips(char *src, device devs[]);
-int use_ips(struct arg_vals args); 
+int use_ips(struct arg_vals args);

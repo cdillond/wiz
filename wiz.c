@@ -32,6 +32,7 @@ static struct argp_option options[] = {
     {"on", 'o', 0, 0, "Send a turn-on signal", 0},
     {"scene", 's', "SCENE", 0, "Name of the scene", 0},
     {"room", 'r', "[ROOM...]", 0, "Name of the room or comma-separated list of rooms", 0},
+    {"repeat", 't', "NUMBER", 0, "Number of times to repeat the command."},
     {0}, // "This should be terminated by an entry with zero in all fields."
 };
 static error_t parse_opt(int, char *, struct argp_state *);
@@ -58,22 +59,43 @@ int main(int argc, char *argv[])
     // check if the program is operating in discovery mode, broadcast mode, or ip mode.
     // these modes do not read the device config file.
 
-    if (args.discover) { return broadcast_udp_wait(INFO, sizeof(INFO), args.seconds, args.num_devs); }
+    if (args.discover)
+    {
+        for (int i = 0; i <= args.repeat; i++)
+        {
+            exit_status = broadcast_udp_wait(INFO, sizeof(INFO), args.seconds, args.num_devs);
+        }
+        return exit_status;
+    }
 
-    if (args.broadcast) { return msg_all(args); }
+    if (args.broadcast)
+    {
+        for (int i = 0; i <= args.repeat; i++)
+        {
+            exit_status = msg_all(args);
+        }
+        return exit_status;
+    }
 
-    if (args.ips != NULL) { return use_ips(args); }
+    if (args.ips != NULL)
+    {
+        for (int i = 0; i <= args.repeat; i++)
+        {
+            exit_status = use_ips(args);
+        }
+        return exit_status;
+    }
 
-    
     // load the device configs into memory
     struct stat fstat;
     if ((stat(WIZ_PATH, &fstat)) < 0)
-    {  
+    {
         fprintf(stderr, "unable to stat device configuration file\n");
         perror(NULL);
         return EXIT_FAILURE;
     }
-    if (fstat.st_size == 0) {
+    if (fstat.st_size == 0)
+    {
         fprintf(stderr, "device configuration file is empty\n");
         return EXIT_FAILURE;
     }
@@ -108,7 +130,8 @@ int main(int argc, char *argv[])
         exit_status = EXIT_FAILURE;
         goto end;
     }
-    if (n == 0 ) {
+    if (n == 0)
+    {
         fprintf(stderr, "no devices read from the configuration file\n");
         exit_status = EXIT_FAILURE;
         goto end;
@@ -118,8 +141,6 @@ int main(int argc, char *argv[])
     update_dev(devs, args);
     char msg[MAX_REQ];
     int mlen = req_msg(msg, devs[0]);
-    
-    
 
     if (args.list)
     {
@@ -135,10 +156,13 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (send_cmds(msg, mlen, devs, n) < 0)
+    for (int i = 0; i <= args.repeat; i++)
     {
-        fprintf(stderr, "error sending cmds\n");
-        exit_status = EXIT_FAILURE;
+        if (send_cmds(msg, mlen, devs, n) < 0)
+        {
+            fprintf(stderr, "error sending cmds\n");
+            exit_status = EXIT_FAILURE;
+        }
     }
 
 end:
@@ -232,6 +256,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 's':
         arg_info->scene = str_scene(arg);
         break;
+    case 't':
+        arg_info->repeat = atoi(arg);
+        break;
     default:
         return ARGP_ERR_UNKNOWN;
     }
@@ -268,14 +295,14 @@ int init_color(color *col, char *s)
     return (n != 3);
 };
 
-device init_dev( struct arg_vals args) {
+device init_dev(struct arg_vals args)
+{
     device dev = {};
     if (args.change_col)
     {
-        
+
         dev.op = CMD_COLOR;
         dev.col = args.col;
-        
     }
     else if (args.turn_off)
     {
@@ -302,13 +329,13 @@ device init_dev( struct arg_vals args) {
     return dev;
 }
 
-void update_dev(device *dev, struct arg_vals args) {
-if (args.change_col)
+void update_dev(device *dev, struct arg_vals args)
+{
+    if (args.change_col)
     {
-        
+
         dev->op = CMD_COLOR;
         dev->col = args.col;
-        
     }
     else if (args.turn_off)
     {
@@ -333,7 +360,6 @@ if (args.change_col)
         dev->op = CMD_ON;
     }
 }
-
 
 int req_msg(char buf[], device dev)
 {
@@ -472,16 +498,20 @@ find_group:
     return d;
 }
 
-int parse_ips(char *src, device devs[]) {
+int parse_ips(char *src, device devs[])
+{
     int n = 0;
     int i = 0;
     int src_len = strlen(src);
     device new = {};
-    for (; i < src_len && n < MAX_DEVS; n++) {
+    for (; i < src_len && n < MAX_DEVS; n++)
+    {
         devs[n] = new;
         devs[n].ip = &src[i];
-        while (i < src_len) {
-            if (src[i] == ',') {
+        while (i < src_len)
+        {
+            if (src[i] == ',')
+            {
                 src[i] = '\0';
                 i++;
                 break;
@@ -620,7 +650,7 @@ int broadcast_udp_wait(char *msg, int mlen, int timeout, int max_resps)
     sin.sin_family = AF_INET;
     sin.sin_port = htons(PORT);
     sin.sin_addr.s_addr = INADDR_BROADCAST;
-    
+
     if (sendto(sockfd, (void *)msg, mlen, 0, (struct sockaddr *)(&sin), sizeof(sin)) < 0)
     {
         perror(NULL);
@@ -653,14 +683,13 @@ int broadcast_udp_wait(char *msg, int mlen, int timeout, int max_resps)
     return res;
 }
 
-
-int msg_all(struct arg_vals a) {
+int msg_all(struct arg_vals a)
+{
     device dev = init_dev(a);
     char buf[MAX_REQ];
     int n = req_msg(buf, dev);
-    return  broadcast_udp(buf, n);
+    return broadcast_udp(buf, n);
 }
-
 
 int broadcast_udp(char *msg, int mlen)
 {
@@ -685,7 +714,7 @@ int broadcast_udp(char *msg, int mlen)
     sin.sin_family = AF_INET;
     sin.sin_port = htons(PORT);
     sin.sin_addr.s_addr = INADDR_BROADCAST;
-    
+
     if (sendto(sockfd, (void *)msg, mlen, 0, (struct sockaddr *)(&sin), sizeof(sin)) < 0)
     {
         perror(NULL);
@@ -696,10 +725,12 @@ int broadcast_udp(char *msg, int mlen)
     return res;
 }
 
-int use_ips(struct arg_vals args) {
+int use_ips(struct arg_vals args)
+{
     device devs[MAX_DEVS];
     int n = parse_ips(args.ips, devs);
-    if (n < 1) {
+    if (n < 1)
+    {
         fprintf(stderr, "unable to parse ip addresses");
         return EXIT_FAILURE;
     }
