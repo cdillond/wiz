@@ -22,6 +22,7 @@ const char doc[] = "wiz is a cli tool for controlling wiz lights.";
 
 static struct argp_option options[] = {
     {"color", 'c', "COLOR", 0, "Color name (r, g, b, red, green, or blue) or RGB (0-255,0-255,0-255) color value", 0},
+    {"dimming", 'u', "PERCENT", 0, "Dimming/brightness level percentage (0-100, lower is dimmer)", 0},
     {"discover", 'd', "TIMEOUT,MAX_DEVS", 0, "Broadcast a discovery signal to the network and print responses to stdout until TIMEOUT (in seconds) elapses or MAX_DEVS responses have been received", 0},
     {"broadcast", 'b', 0, 0, "Broadcasts the command to all devices on the current network, regardless of whether they appear in the config file.", 0},
     {"ips", 'i', "ADDRESS", 0, "Comma-separated list of device IP addresses", 0},
@@ -31,6 +32,7 @@ static struct argp_option options[] = {
     {"off", 'q', 0, 0, "Send a turn-off signal", 0},
     {"on", 'o', 0, 0, "Send a turn-on signal", 0},
     {"scene", 's', "SCENE", 0, "Name of the scene", 0},
+    {"speed", 'v', "SPEED", 0, "Scene transition speed (10-200)", 0},
     {"room", 'r', "[ROOM...]", 0, "Name of the room or comma-separated list of rooms", 0},
     {"repeat", 't', "NUMBER", 0, "Number of times to repeat the command."},
     {0}, // "This should be terminated by an entry with zero in all fields."
@@ -106,18 +108,21 @@ int main(int argc, char *argv[])
     {
         fprintf(stderr, "unable to open device configuration file\n");
         perror(NULL);
-        return EXIT_FAILURE;
+        exit_status = EXIT_FAILURE;
+        goto end;
     }
     if (fread(buf, fstat.st_size, 1, fp) == 0)
     {
         fprintf(stderr, "unable to read device configuration file\n");
-        return EXIT_FAILURE;
+        exit_status = EXIT_FAILURE;
+        goto end;
     }
     if (fclose(fp) < 0)
     {
         fprintf(stderr, "unable to close device configuration file\n");
         perror(NULL);
-        return EXIT_FAILURE;
+        exit_status = EXIT_FAILURE;
+        goto end;
     }
 
     // parse devices names/ips from the config file
@@ -137,10 +142,13 @@ int main(int argc, char *argv[])
         goto end;
     }
 
-    // update devs to reflect args
-    update_dev(devs, args);
+   
     char msg[MAX_REQ];
-    int mlen = req_msg(msg, devs[0]);
+    int mlen = json_msg(msg, args);
+    if (mlen < 0) {
+        fprintf(stderr, "error writing json message: %s\n", msg);
+        goto end;
+    }
 
     if (args.list)
     {
@@ -259,6 +267,12 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 't':
         arg_info->repeat = atoi(arg);
         break;
+    case 'u':
+        arg_info->dimming = clamp(0, 100, atoi(arg)) + 1;
+        break;
+    case 'v':
+        arg_info->speed = clamp(10, 200, atoi(arg));
+        break;
     default:
         return ARGP_ERR_UNKNOWN;
     }
@@ -295,95 +309,9 @@ int init_color(color *col, char *s)
     return (n != 3);
 };
 
-device init_dev(struct arg_vals args)
-{
-    device dev = {};
-    if (args.change_col)
-    {
 
-        dev.op = CMD_COLOR;
-        dev.col = args.col;
-    }
-    else if (args.turn_off)
-    {
-        dev.op = CMD_OFF;
-    }
-    else if (args.kelvin > 1999)
-    {
-        dev.op = CMD_KELVIN;
-        dev.kelvin = args.kelvin;
-    }
-    else if (args.turn_on)
-    {
-        dev.op = CMD_ON;
-    }
-    else if (args.scene > BAD_SCENE)
-    {
-        dev.op = CMD_SCENE;
-        dev.scene = args.scene;
-    }
-    else
-    {
-        dev.op = CMD_ON;
-    }
-    return dev;
-}
 
-void update_dev(device *dev, struct arg_vals args)
-{
-    if (args.change_col)
-    {
 
-        dev->op = CMD_COLOR;
-        dev->col = args.col;
-    }
-    else if (args.turn_off)
-    {
-        dev->op = CMD_OFF;
-    }
-    else if (args.kelvin > 1999)
-    {
-        dev->op = CMD_KELVIN;
-        dev->kelvin = args.kelvin;
-    }
-    else if (args.turn_on)
-    {
-        dev->op = CMD_ON;
-    }
-    else if (args.scene > BAD_SCENE)
-    {
-        dev->op = CMD_SCENE;
-        dev->scene = args.scene;
-    }
-    else
-    {
-        dev->op = CMD_ON;
-    }
-}
-
-int req_msg(char buf[], device dev)
-{
-    int n;
-    switch (dev.op)
-    {
-    case CMD_OFF:
-        strcpy(buf, OFF);
-        return sizeof(OFF);
-    case CMD_ON:
-        strcpy(buf, ON);
-        return sizeof(ON);
-    case CMD_COLOR:
-        n = sprintf(buf, COLOR, dev.col.r, dev.col.g, dev.col.b);
-        return (n < 1) ? -1 : n + 1;
-    case CMD_KELVIN:
-        n = sprintf(buf, KELVIN, dev.kelvin);
-        return (n < 1) ? -1 : n + 1;
-    case CMD_SCENE:
-        n = sprintf(buf, SCENE, dev.scene);
-        return (n < 1) ? -1 : n + 1;
-    }
-    return -1;
-}
 
 int parse_csv(char *data, int n, device devs[], char *search_names, char *search_rooms)
 {
@@ -685,9 +613,8 @@ int broadcast_udp_wait(char *msg, int mlen, int timeout, int max_resps)
 
 int msg_all(struct arg_vals a)
 {
-    device dev = init_dev(a);
     char buf[MAX_REQ];
-    int n = req_msg(buf, dev);
+    int n = json_msg(buf, a);
     return broadcast_udp(buf, n);
 }
 
@@ -736,6 +663,42 @@ int use_ips(struct arg_vals args)
     }
     update_dev(devs, args);
     char msg[MAX_REQ];
-    int mlen = req_msg(msg, devs[0]);
+    int mlen = json_msg(msg, args);
     return send_cmds(msg, mlen, devs, n);
 };
+
+
+int json_msg(char *buf, struct arg_vals args) {
+    // setState cmds
+    if (args.turn_on) { 
+        strcpy(buf, ON);
+        return sizeof(ON);
+    }
+    if (args.turn_off) { 
+        strcpy(buf, OFF);
+        return sizeof(OFF);
+    }
+
+    char col_str[64] = "";
+    char k_str[64] = "";
+    char scene_str[64] = "";
+
+    // set exclusive pilot cmds
+    if (args.change_col) {sprintf(col_str, "\"r\":%u,\"g\":%u,\"b\":%u,", args.col.r, args.col.g, args.col.b);}
+    else if (args.kelvin){sprintf(k_str, "\"temp\":%d,", args.kelvin);}
+    else if (args.scene){sprintf(scene_str, "\"sceneId\":%d,", args.scene);}
+    
+    char dimming_str[64] = "";
+    char speed_str[64] = "";
+    // set additional parameters
+    if (args.dimming){sprintf(dimming_str, "\"dimming\":%d,", args.dimming-1);}
+    if (args.speed){sprintf(speed_str, "\"speed\":%d,", args.speed);};
+
+    sprintf(buf, "{\"id\":1,\"method\":\"setPilot\",\"params\":{%s%s%s%s%s", col_str, k_str, scene_str, dimming_str, speed_str);
+
+    int buf_len = strlen(buf);
+    if (buf[buf_len-1] == '{') { return -1; }
+
+    strcpy(&buf[buf_len-1], "}}");
+    return buf_len + 1;
+}

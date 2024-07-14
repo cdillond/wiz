@@ -77,10 +77,6 @@ typedef struct device
     char *ip;
     char *name;
     char *room;
-    color col;
-    int kelvin;
-    cmd op;
-    scene scene;
 } device;
 
 struct arg_vals
@@ -95,6 +91,8 @@ struct arg_vals
     char *room;
     char *ips;
     color col;
+    int speed;
+    int dimming;
     int kelvin;
     int seconds;
     int num_devs;
@@ -111,9 +109,6 @@ int parse_csv(char *data, int n, device devs[], char *search, char *search_room)
 // init_color parses the string argument as either a named color or a comma-separated list of r, g, and b values of a color. It updates the color and returns 0 on success or -1 on failure.
 int init_color(color *col, char *s);
 
-// req_msg builds a request body that represents dev and writes it to buf.
-int req_msg(char buf[], device dev);
-
 // scene_str returns the scene id that matches s.
 scene str_scene(char *s);
 
@@ -126,12 +121,9 @@ int broadcast_udp_wait(char *msg, int mlen, int timeout, int max_resps);
 // msg_all  broadcasts a command based on the supplied arguments to all devices on the current network.
 int msg_all(struct arg_vals a);
 
-// init_dev returns a device reflecting the values from the supplied args. This function validates the arg_vals to ensure the returned device will be acceptable.
-device init_dev(struct arg_vals args);
-// update_dev is similar to init_dev, but it updates an existing dev to reflect the supplied args.
-void update_dev(device *dev, struct arg_vals args);
 // broadcast_udp broadcasts the msg to all devices on the current network. It does not wait for any responses.
 int broadcast_udp(char *msg, int mlen);
 // parse_ips parses a comma-separated list of ipv4 addresses and returns the number of updated devices.
 int parse_ips(char *src, device devs[]);
 int use_ips(struct arg_vals args);
+int json_msg(char *buf, struct arg_vals args);
