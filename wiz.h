@@ -9,9 +9,6 @@
 
 #define OFF "{\"id\":1,\"method\":\"setState\",\"params\":{\"state\":false}}"
 #define ON "{\"id\":1,\"method\":\"setState\",\"params\":{\"state\":true}}"
-#define COLOR "{\"id\":1,\"method\":\"setPilot\",\"params\":{\"r\":%u,\"g\":%u,\"b\":%u}}"
-#define KELVIN "{\"id\":1,\"method\":\"setPilot\",\"params\":{\"temp\":%d}}"
-#define SCENE "{\"id\":1,\"method\":\"setPilot\",\"params\":{\"sceneId\":%d}}"
 #define INFO "{\"id\":-2147483648,\"method\":\"getDevInfo\"}"
 
 typedef enum

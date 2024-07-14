@@ -21,24 +21,26 @@ const char *argp_program_bug_address = "<info@finfaq.net>";
 const char doc[] = "wiz is a cli tool for controlling wiz lights.";
 
 static struct argp_option options[] = {
+    {"broadcast", 'b', 0, 0, "Broadcasts the command to all devices on the current network, regardless of whether they appear in the config file", 0},
     {"color", 'c', "COLOR", 0, "Color name (r, g, b, red, green, or blue) or RGB (0-255,0-255,0-255) color value", 0},
     {"dimming", 'u', "PERCENT", 0, "Dimming/brightness level percentage (0-100, lower is dimmer)", 0},
     {"discover", 'd', "TIMEOUT,MAX_DEVS", 0, "Broadcast a discovery signal to the network and print responses to stdout until TIMEOUT (in seconds) elapses or MAX_DEVS responses have been received", 0},
-    {"broadcast", 'b', 0, 0, "Broadcasts the command to all devices on the current network, regardless of whether they appear in the config file.", 0},
     {"ips", 'i', "ADDRESS", 0, "Comma-separated list of device IP addresses", 0},
     {"kelvin", 'k', "KELVIN", 0, "Temperature in kelvins, must be in [2000, 9000)", 0},
     {"list", 'l', 0, 0, "Lists the devices to which the command is sent", 0},
     {"name", 'n', "[NAME...]", 0, "Device name or comma-separated list of names; if not specified, signals are sent to all devices named in the config file", 0},
     {"off", 'q', 0, 0, "Send a turn-off signal", 0},
     {"on", 'o', 0, 0, "Send a turn-on signal", 0},
+    {"repeat", 't', "NUMBER", 0, "Number of times to repeat the command"},
+    {"room", 'r', "[ROOM...]", 0, "Name of the room or comma-separated list of rooms", 0},
     {"scene", 's', "SCENE", 0, "Name of the scene", 0},
     {"speed", 'v', "SPEED", 0, "Scene transition speed (10-200)", 0},
-    {"room", 'r', "[ROOM...]", 0, "Name of the room or comma-separated list of rooms", 0},
-    {"repeat", 't', "NUMBER", 0, "Number of times to repeat the command."},
     {0}, // "This should be terminated by an entry with zero in all fields."
 };
+
 static error_t parse_opt(int, char *, struct argp_state *);
 static struct argp argp = {options, parse_opt, 0, doc, 0, 0, 0};
+
 static int max(int a, int b) { return (a > b) ? a : b; }
 static int clamp(int min, int max, int n)
 {
@@ -661,7 +663,6 @@ int use_ips(struct arg_vals args)
         fprintf(stderr, "unable to parse ip addresses");
         return EXIT_FAILURE;
     }
-    update_dev(devs, args);
     char msg[MAX_REQ];
     int mlen = json_msg(msg, args);
     return send_cmds(msg, mlen, devs, n);
