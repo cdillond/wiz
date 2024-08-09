@@ -90,22 +90,55 @@ int main(int argc, char *argv[])
         return exit_status;
     }
 
+    char wiz_path[PATH_MAX];
+    char *wiz_path_tmp;
+    // first check if WIZ_PATH is defined...
+    wiz_path_tmp = getenv("WIZ_PATH");
+    if (wiz_path_tmp == NULL) {
+        // then look to see if the XDG_DATA_HOME dir is something other than expected
+        wiz_path_tmp = getenv("XDG_DATA_HOME");
+        if (wiz_path_tmp == NULL) {
+            // finally, go with the default
+            wiz_path_tmp = getenv("HOME");
+            if (wiz_path_tmp == NULL) {
+                fprintf(stderr, "unable to determine user's home directory\n");
+                return EXIT_FAILURE;
+            }
+            sprintf(wiz_path, "%s/.local/share/wiz.csv", wiz_path_tmp);
+        } else {
+            sprintf(wiz_path, "%s/wiz.csv", wiz_path_tmp);
+        }
+    } else {
+        strncpy(wiz_path, wiz_path_tmp, PATH_MAX);
+    }
+        
+
     // load the device configs into memory
     struct stat fstat;
-    if ((stat(WIZ_PATH, &fstat)) < 0)
+    if ((stat(wiz_path, &fstat)) < 0)
     {
         fprintf(stderr, "unable to stat device configuration file\n");
         perror(NULL);
+        // attempt to create this file if possible
+        FILE *tmp_fp = fopen(wiz_path, "w");
+        if (tmp_fp != NULL)
+            fclose(tmp_fp);
+
         return EXIT_FAILURE;
     }
     if (fstat.st_size == 0)
     {
         fprintf(stderr, "device configuration file is empty\n");
+        // attempt to create this file if possible
+        FILE *tmp_fp = fopen(wiz_path, "w");
+        if (tmp_fp != NULL)
+            fclose(tmp_fp);
+
         return EXIT_FAILURE;
     }
     char *buf = malloc(fstat.st_size + 1);
 
-    FILE *fp = fopen(WIZ_PATH, "r");
+    FILE *fp = fopen(wiz_path, "r");
     if (fp == NULL)
     {
         fprintf(stderr, "unable to open device configuration file\n");

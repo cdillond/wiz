@@ -2,7 +2,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#define WIZ_PATH "/usr/share/wiz/wiz.csv"
 #define PORT 38899
 #define MAX_DEVS 256
 #define MAX_REQ 128
