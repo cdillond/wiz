@@ -1,7 +1,7 @@
 DEPS = wiz.h
 
 wiz: wiz.c
-	cc wiz.c -o wiz ${DEPS} -O2
+	cc wiz.c -o wiz $(DEPS) -O2
 
 .PHONY: clean install uninstall
 
